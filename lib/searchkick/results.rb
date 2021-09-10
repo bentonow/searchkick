@@ -5,7 +5,7 @@ module Searchkick
     include Enumerable
     extend Forwardable
 
-    attr_reader :klass, :response, :options
+    attr_reader :klass, :response, :options, :client
 
     def_delegators :results, :each, :any?, :empty?, :size, :length, :slice, :[], :to_ary
 
@@ -13,6 +13,7 @@ module Searchkick
       @klass = klass
       @response = response
       @options = options
+      @client = (klass&.searchkick_index || Searchkick).client
     end
 
     def results
@@ -22,74 +23,15 @@ module Searchkick
     # TODO return enumerator like with_score
     def with_hit
       @with_hit ||= begin
-        if options[:load]
-          # results can have different types
-          results = {}
-
-          hits.group_by { |hit, _| hit["_index"] }.each do |index, grouped_hits|
-            klasses =
-              if @klass
-                [@klass]
-              else
-                index_alias = index.split("_")[0..-2].join("_")
-                Array((options[:index_mapping] || {})[index_alias])
-              end
-            raise Searchkick::Error, "Unknown model for index: #{index}" unless klasses.any?
-
-            results[index] = {}
-            klasses.each do |klass|
-              results[index].merge!(results_query(klass, grouped_hits).to_a.index_by { |r| r.id.to_s })
-            end
-          end
-
-          missing_ids = []
-
-          # sort
-          results =
-            hits.map do |hit|
-              result = results[hit["_index"]][hit["_id"].to_s]
-              if result && !(options[:load].is_a?(Hash) && options[:load][:dumpable])
-                if (hit["highlight"] || options[:highlight]) && !result.respond_to?(:search_highlights)
-                  highlights = hit_highlights(hit)
-                  result.define_singleton_method(:search_highlights) do
-                    highlights
-                  end
-                end
-              end
-              [result, hit]
-            end.select do |result, hit|
-              missing_ids << hit["_id"] unless result
-              result
-            end
-
-          if missing_ids.any?
-            Searchkick.warn("Records in search index do not exist in database: #{missing_ids.join(", ")}")
-          end
-
-          results
-        else
-          hits.map do |hit|
-            result =
-              if hit["_source"]
-                hit.except("_source").merge(hit["_source"])
-              elsif hit["fields"]
-                hit.except("fields").merge(hit["fields"])
-              else
-                hit
-              end
-
-            if hit["highlight"] || options[:highlight]
-              highlight = Hash[hit["highlight"].to_a.map { |k, v| [base_field(k), v.first] }]
-              options[:highlighted_fields].map { |k| base_field(k) }.each do |k|
-                result["highlighted_#{k}"] ||= (highlight[k] || result[k])
-              end
-            end
-
-            result["id"] ||= result["_id"] # needed for legacy reasons
-            [HashWrapper.new(result), hit]
-          end
+        if missing_records.any?
+          Searchkick.warn("Records in search index do not exist in database: #{missing_records.map { |v| v[:id] }.join(", ")}")
         end
+        with_hit_and_missing_records[0]
       end
+    end
+
+    def missing_records
+      @missing_records ||= with_hit_and_missing_records[1]
     end
 
     def suggestions
@@ -254,7 +196,7 @@ module Searchkick
 
         begin
           # TODO Active Support notifications for this scroll call
-          Searchkick::Results.new(@klass, Searchkick.client.scroll(params), @options)
+          Searchkick::Results.new(@klass, client.scroll(params), @options)
         rescue Elasticsearch::Transport::Transport::Errors::NotFound => e
           if e.class.to_s =~ /NotFound/ && e.message =~ /search_context_missing_exception/i
             raise Searchkick::Error, "Scroll id has expired"
@@ -270,13 +212,97 @@ module Searchkick
         # try to clear scroll
         # not required as scroll will expire
         # but there is a cost to open scrolls
-        Searchkick.client.clear_scroll(scroll_id: scroll_id)
+        client.clear_scroll(scroll_id: scroll_id)
       rescue Elasticsearch::Transport::Transport::Error
         # do nothing
       end
     end
 
     private
+
+    def with_hit_and_missing_records
+      @with_hit_and_missing_records ||= begin
+        missing_records = []
+
+        if options[:load]
+          grouped_hits = hits.group_by { |hit, _| hit["_index"] }
+
+          # determine models
+          index_models = {}
+          grouped_hits.each do |index, _|
+            models =
+              if @klass
+                [@klass]
+              else
+                index_alias = index.split("_")[0..-2].join("_")
+                Array((options[:index_mapping] || {})[index_alias])
+              end
+            raise Searchkick::Error, "Unknown model for index: #{index}" unless models.any?
+            index_models[index] = models
+          end
+
+          # fetch results
+          results = {}
+          grouped_hits.each do |index, index_hits|
+            results[index] = {}
+            index_models[index].each do |model|
+              results[index].merge!(results_query(model, index_hits).to_a.index_by { |r| r.id.to_s })
+            end
+          end
+
+          # sort
+          results =
+            hits.map do |hit|
+              result = results[hit["_index"]][hit["_id"].to_s]
+              if result && !(options[:load].is_a?(Hash) && options[:load][:dumpable])
+                if (hit["highlight"] || options[:highlight]) && !result.respond_to?(:search_highlights)
+                  highlights = hit_highlights(hit)
+                  result.define_singleton_method(:search_highlights) do
+                    highlights
+                  end
+                end
+              end
+              [result, hit]
+            end.select do |result, hit|
+              unless result
+                models = index_models[hit["_index"]]
+                missing_records << {
+                  id: hit["_id"],
+                  # may be multiple models for inheritance with child models
+                  # not ideal to return different types
+                  # but this situation shouldn't be common
+                  model: models.size == 1 ? models.first : models
+                }
+              end
+              result
+            end
+        else
+          results =
+            hits.map do |hit|
+              result =
+                if hit["_source"]
+                  hit.except("_source").merge(hit["_source"])
+                elsif hit["fields"]
+                  hit.except("fields").merge(hit["fields"])
+                else
+                  hit
+                end
+
+              if hit["highlight"] || options[:highlight]
+                highlight = Hash[hit["highlight"].to_a.map { |k, v| [base_field(k), v.first] }]
+                options[:highlighted_fields].map { |k| base_field(k) }.each do |k|
+                  result["highlighted_#{k}"] ||= (highlight[k] || result[k])
+                end
+              end
+
+              result["id"] ||= result["_id"] # needed for legacy reasons
+              [HashWrapper.new(result), hit]
+            end
+        end
+
+       [results, missing_records]
+      end
+    end
 
     def results_query(records, hits)
       ids = hits.map { |hit| hit["_id"] }

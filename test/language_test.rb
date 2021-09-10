@@ -52,7 +52,7 @@ class LanguageTest < Minitest::Test
   end
 
   def test_korean2
-    skip if Searchkick.server_below?("6.4.0")
+    skip if Searchkick.server_below?("6.4.0") || ci?
 
     # requires https://www.elastic.co/guide/en/elasticsearch/plugins/7.4/analysis-nori.html
     with_options({language: "korean2"}) do
@@ -88,6 +88,23 @@ class LanguageTest < Minitest::Test
       assert_language_search "công nghệ thông tin", ["công nghệ thông tin Việt Nam"]
       assert_language_search "công", []
     end
+  end
+
+  def test_hunspell
+    skip if ci?
+
+    with_options({language: {type: "hunspell", locale: "en_US"}}) do
+      store_names ["the foxes jumping quickly"]
+      assert_language_search "fox", ["the foxes jumping quickly"]
+    end
+  end
+
+  def test_unknown_type
+    error = assert_raises(ArgumentError) do
+      with_options({language: {type: "bad"}}) do
+      end
+    end
+    assert_equal "Unknown language: bad", error.message
   end
 
   def assert_language_search(term, expected)

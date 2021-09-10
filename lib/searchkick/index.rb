@@ -105,7 +105,7 @@ module Searchkick
       indices =
         begin
           if client.indices.respond_to?(:get_alias)
-            client.indices.get_alias
+            client.indices.get_alias(index: "#{name}*")
           else
             client.indices.get_aliases
           end
@@ -120,7 +120,7 @@ module Searchkick
     def clean_indices
       indices = all_indices(unaliased: true)
       indices.each do |index|
-        Searchkick::Index.new(index).delete
+        Searchkick::Index.new(index, @options).delete
       end
       indices
     end
@@ -178,7 +178,7 @@ module Searchkick
 
     def reload_synonyms
       require "elasticsearch/xpack"
-      raise Error, "Requires Elasticsearch 7.3+" if Searchkick.server_below?("7.3.0")
+      raise Error, "Requires Elasticsearch 7.3+" if client.server_below?("7.3.0")
       raise Error, "Requires elasticsearch-xpack 7.8+" unless client.xpack.respond_to?(:indices)
       begin
         client.xpack.indices.reload_search_analyzers(index: name)
@@ -274,11 +274,15 @@ module Searchkick
       index_settings["uuid"]
     end
 
-    protected
+    def client_name
+      options[:client_name]
+    end
 
     def client
-      Searchkick.client
+      Searchkick.client(client_name)
     end
+
+    protected
 
     def bulk_indexer
       @bulk_indexer ||= BulkIndexer.new(self)
@@ -341,7 +345,7 @@ module Searchkick
           puts "Jobs queued. Waiting..."
           loop do
             sleep 3
-            status = Searchkick.reindex_status(index.name)
+            status = Searchkick.reindex_status(index.name, options)
             break if status[:completed]
             puts "Batches left: #{status[:batches_left]}"
           end

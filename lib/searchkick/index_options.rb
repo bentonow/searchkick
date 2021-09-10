@@ -1,14 +1,19 @@
 module Searchkick
   class IndexOptions
+    extend Forwardable
+
     attr_reader :options
+
+    def_delegators :@client, :server_below?
 
     def initialize(index)
       @options = index.options
+      @client = index.client
     end
 
     def index_options
       custom_mapping = options[:mappings] || {}
-      if below70? && custom_mapping.keys.map(&:to_sym).include?(:properties)
+      if server_below?("7.0.0") && custom_mapping.keys.map(&:to_sym).include?(:properties)
         # add type
         custom_mapping = {index_type => custom_mapping}
       end
@@ -153,7 +158,11 @@ module Searchkick
         }
       }
 
-      update_language(settings, language)
+      if language.is_a?(Hash)
+        update_language_type(settings, language)
+      else
+        update_language(settings, language)
+      end
       update_stemming(settings)
 
       if Searchkick.env == "test"
@@ -166,7 +175,7 @@ module Searchkick
         settings[:similarity] = {default: {type: options[:similarity]}}
       end
 
-      unless below62?
+      unless server_below?("6.2.0")
         settings[:index] = {
           max_ngram_diff: 49,
           max_shingle_diff: 4
@@ -194,6 +203,16 @@ module Searchkick
       end
 
       settings
+    end
+
+    def update_language_type(settings, language)
+      case language[:type]
+      when "hunspell"
+        # supports all token filter options
+        settings[:analysis][:filter][:searchkick_stemmer] = language
+      else
+        raise ArgumentError, "Unknown language: #{language[:type]}"
+      end
     end
 
     def update_language(settings, language)
@@ -447,7 +466,7 @@ module Searchkick
         ]
       }
 
-      if below70?
+      if server_below?("7.0.0")
         mappings = {index_type => mappings}
       end
 
@@ -489,7 +508,7 @@ module Searchkick
             type: "synonym_graph",
             synonyms_path: search_synonyms
           }
-          synonym_graph[:updateable] = true unless below73?
+          synonym_graph[:updateable] = true unless server_below?("7.3.0")
         else
           synonym_graph = {
             type: "synonym_graph",
@@ -541,18 +560,6 @@ module Searchkick
 
     def default_analyzer
       :searchkick_index
-    end
-
-    def below62?
-      Searchkick.server_below?("6.2.0")
-    end
-
-    def below70?
-      Searchkick.server_below?("7.0.0")
-    end
-
-    def below73?
-      Searchkick.server_below?("7.3.0")
     end
   end
 end

@@ -22,11 +22,11 @@ Plus:
 - supports many languages
 - works with ActiveRecord, Mongoid, and NoBrainer
 
+Check out [Searchjoy](https://github.com/ankane/searchjoy) for analytics and [Autosuggest](https://github.com/ankane/autosuggest) for query suggestions
+
 :tangerine: Battle-tested at [Instacart](https://www.instacart.com/opensource)
 
-:speech_balloon: Get [handcrafted updates](https://chartkick.us7.list-manage.com/subscribe?u=952c861f99eb43084e0a49f98&id=6ea6541e8e&group[0][4]=true) for new features
-
-[![Build Status](https://travis-ci.org/ankane/searchkick.svg?branch=master)](https://travis-ci.org/ankane/searchkick)
+[![Build Status](https://github.com/ankane/searchkick/workflows/build/badge.svg?branch=master)](https://github.com/ankane/searchkick/actions)
 
 ## Contents
 
@@ -176,7 +176,7 @@ Get the full response from Elasticsearch
 results.response
 ```
 
-**Note:** By default, Elasticsearch [limits paging](#deep-paging-master) to the first 10,000 results for performance. With Elasticsearch 7, this applies to the total count as well.
+**Note:** By default, Elasticsearch [limits paging](#deep-paging) to the first 10,000 results for performance. With Elasticsearch 7, this applies to the total count as well.
 
 ### Boosting
 
@@ -209,7 +209,7 @@ boost_by_recency: {created_at: {scale: "7d", decay: 0.5}}
 
 You can also boost by:
 
-- [Conversions](#keep-getting-better)
+- [Conversions](#intelligent-search)
 - [Distance](#boost-by-distance)
 
 ### Get Everything
@@ -321,6 +321,14 @@ See the [list of stemmers](https://www.elastic.co/guide/en/elasticsearch/referen
 - `polish` - [analysis-stempel plugin](https://www.elastic.co/guide/en/elasticsearch/plugins/7.4/analysis-stempel.html)
 - `ukrainian` - [analysis-ukrainian plugin](https://www.elastic.co/guide/en/elasticsearch/plugins/7.4/analysis-ukrainian.html)
 - `vietnamese` - [analysis-vietnamese plugin](https://github.com/duydo/elasticsearch-analysis-vietnamese)
+
+You can also use a Hunspell dictionary for stemming. [master]
+
+```ruby
+class Product < ApplicationRecord
+  searchkick language: {type: "hunspell", locale: "en_US"}
+end
+```
 
 Disable stemming with:
 
@@ -1202,6 +1210,14 @@ end
 FactoryBot.create(:product, :some_trait, :reindex, some_attribute: "foo")
 ```
 
+### GitHub Actions
+
+Check out [setup-elasticsearch](https://github.com/ankane/setup-elasticsearch) for an easy way to install Elasticsearch.
+
+```yml
+    - uses: ankane/setup-elasticsearch@v1
+```
+
 ## Deployment
 
 Searchkick uses `ENV["ELASTICSEARCH_URL"]` for the Elasticsearch server. This defaults to `http://localhost:9200`.
@@ -1209,7 +1225,7 @@ Searchkick uses `ENV["ELASTICSEARCH_URL"]` for the Elasticsearch server. This de
 - [Elastic Cloud](#elastic-cloud)
 - [Heroku](#heroku)
 - [Amazon Elasticsearch Service](#amazon-elasticsearch-service)
-- [Self-Hosted and Other](#other)
+- [Self-Hosted and Other](#self-hosted-and-other)
 
 ### Elastic Cloud
 
@@ -1461,7 +1477,7 @@ Product.search_index.promote(index_name, update_refresh_interval: true)
 
 ### Queuing
 
-Push ids of records needing reindexed to a queue and reindex in bulk for better performance. First, set up Redis in an initializer. We recommend using [connection_pool](https://github.com/mperham/connection_pool).
+Push ids of records needing reindexing to a queue and reindex in bulk for better performance. First, set up Redis in an initializer. We recommend using [connection_pool](https://github.com/mperham/connection_pool).
 
 ```ruby
 Searchkick.redis = ConnectionPool.new { Redis.new }

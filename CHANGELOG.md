@@ -1,3 +1,13 @@
+## 4.4.3 (unreleased)
+
+- Added support for Hunspell
+- Fixed warning about accessing system indices
+
+## 4.4.2 (2020-11-23)
+
+- Added `missing_records` method to results
+- Fixed issue with `like` and special characters
+
 ## 4.4.1 (2020-06-24)
 
 - Added `stem_exclusion` and `stemmer_override` options
