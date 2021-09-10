@@ -14,6 +14,8 @@ module Searchkick
       :offset_value, :offset, :previous_page, :prev_page, :next_page, :first_page?, :last_page?,
       :out_of_range?, :hits, :response, :to_a, :first, :scroll
 
+    def_delegators :@client, :host, :server_below?, :server_version
+
     def initialize(klass, term = "*", **options)
       unknown_keywords = options.keys - [:aggs, :block, :body, :body_options, :boost,
         :boost_by, :boost_by_distance, :boost_by_recency, :boost_where, :conversions, :conversions_term, :debug, :emoji, :exclude, :execute, :explain,
@@ -29,6 +31,7 @@ module Searchkick
       end
 
       @klass = klass
+      @client = (searchkick_index || Searchkick).client
       @term = term
       @options = options
       @match_suffix = options[:match] || searchkick_options[:match] || "analyzed"
@@ -109,7 +112,6 @@ module Searchkick
       request_params = query.except(:index, :type, :body)
 
       # no easy way to tell which host the client will use
-      host = Searchkick.client.transport.hosts.first
       credentials = host[:user] || host[:password] ? "#{host[:user]}:#{host[:password]}@" : nil
       params = ["pretty"]
       request_params.each do |k, v|
@@ -144,7 +146,7 @@ module Searchkick
         require "pp"
 
         puts "Searchkick Version: #{Searchkick::VERSION}"
-        puts "Elasticsearch Version: #{Searchkick.server_version}"
+        puts "Elasticsearch Version: #{server_version}"
         puts
 
         puts "Model Searchkick Options"
@@ -225,7 +227,7 @@ module Searchkick
     end
 
     def execute_search
-      Searchkick.client.search(params)
+      @client.search(params)
     end
 
     def prepare
@@ -350,7 +352,7 @@ module Searchkick
             field_misspellings = misspellings && (!misspellings_fields || misspellings_fields.include?(base_field(field)))
 
             if field == "_all" || field.end_with?(".analyzed")
-              shared_options[:cutoff_frequency] = 0.001 unless operator.to_s == "and" || field_misspellings == false || (!below73? && !track_total_hits?)
+              shared_options[:cutoff_frequency] = 0.001 unless operator.to_s == "and" || field_misspellings == false || (!server_below?("7.3.0") && !track_total_hits?)
               qs << shared_options.merge(analyzer: "searchkick_search")
 
               # searchkick_search and searchkick_search2 are the same for ukrainian
@@ -375,7 +377,7 @@ module Searchkick
 
             if field.start_with?("*.")
               q2 = qs.map { |q| {multi_match: q.merge(fields: [field], type: match_type == :match_phrase ? "phrase" : "best_fields")} }
-              if below61?
+              if server_below?("6.1.0")
                 q2.each do |q|
                   q[:multi_match].delete(:fuzzy_transpositions)
                 end
@@ -440,7 +442,7 @@ module Searchkick
         if models.any? { |m| m != m.searchkick_klass }
           # aliases are not supported with _index in ES below 7.5
           # see https://github.com/elastic/elasticsearch/pull/46640
-          if below75?
+          if server_below?("7.5.0")
             Searchkick.warn("Passing child models to models option throws off hits and pagination - use type option instead")
           else
             index_type_or =
@@ -1123,27 +1125,11 @@ module Searchkick
     end
 
     def track_total_hits?
-      (searchkick_options[:deep_paging] && !below70?) || body_options[:track_total_hits]
+      (searchkick_options[:deep_paging] && !server_below?("7.0.0")) || body_options[:track_total_hits]
     end
 
     def body_options
       options[:body_options] || {}
-    end
-
-    def below61?
-      Searchkick.server_below?("6.1.0")
-    end
-
-    def below70?
-      Searchkick.server_below?("7.0.0")
-    end
-
-    def below73?
-      Searchkick.server_below?("7.3.0")
-    end
-
-    def below75?
-      Searchkick.server_below?("7.5.0")
     end
   end
 end
