@@ -6,6 +6,7 @@ require "hashie"
 
 # modules
 require "searchkick/bulk_indexer"
+require "searchkick/client"
 require "searchkick/index"
 require "searchkick/indexer"
 require "searchkick/hash_wrapper"
@@ -39,9 +40,13 @@ module Searchkick
   class ImportError < Error; end
 
   class << self
+    extend Forwardable
+
     attr_accessor :search_method_name, :wordnet_path, :timeout, :models, :client_options, :redis, :index_prefix, :index_suffix, :queue_name, :model_options
-    attr_writer :client, :env, :search_timeout
+    attr_writer :env, :search_timeout
     attr_reader :aws_credentials
+
+    def_delegators :client, :server_version, :server_below?
   end
   self.search_method_name = :search
   self.wordnet_path = "/var/lib/wn_s.pl"
@@ -51,19 +56,20 @@ module Searchkick
   self.queue_name = :searchkick
   self.model_options = {}
 
-  def self.client
-    @client ||= begin
-      require "typhoeus/adapters/faraday" if defined?(Typhoeus) && Gem::Version.new(Faraday::VERSION) < Gem::Version.new("0.14.0")
+  def self.client(name = nil)
+    clients[name]
+  end
 
-      Elasticsearch::Client.new({
-        url: ENV["ELASTICSEARCH_URL"],
-        transport_options: {request: {timeout: timeout}, headers: {content_type: "application/json"}},
-        retry_on_failure: 2
-      }.deep_merge(client_options)) do |f|
-        f.use Searchkick::Middleware
-        f.request signer_middleware_key, signer_middleware_aws_params if aws_credentials
-      end
-    end
+  def self.client=(client)
+    clients.default = client
+  end
+
+  def self.clients
+    @clients ||= Hash.new(build_client(url: ENV["ELASTICSEARCH_URL"]))
+  end
+
+  def self.add_client(name, options)
+    clients[name] = build_client(**options)
   end
 
   def self.env
@@ -72,22 +78,6 @@ module Searchkick
 
   def self.search_timeout
     (defined?(@search_timeout) && @search_timeout) || timeout
-  end
-
-  def self.server_version
-    @server_version ||= client.info["version"]["number"]
-  end
-
-  def self.server_below?(version)
-    Gem::Version.new(server_version.split("-")[0]) < Gem::Version.new(version.split("-")[0])
-  end
-
-  # memoize for performance
-  def self.server_below7?
-    unless defined?(@server_below7)
-      @server_below7 = server_below?("7.0.0")
-    end
-    @server_below7
   end
 
   def self.search(term = "*", model: nil, **options, &block)
@@ -170,13 +160,13 @@ module Searchkick
       require "faraday_middleware/aws_sigv4"
     end
     @aws_credentials = creds
-    @client = nil # reset client
+    @clients = nil # reset clients
   end
 
-  def self.reindex_status(index_name)
+  def self.reindex_status(*args)
     raise Searchkick::Error, "Redis not configured" unless redis
 
-    batches_left = Searchkick::Index.new(index_name).batches_left
+    batches_left = Searchkick::Index.new(*args).batches_left
     {
       completed: batches_left == 0,
       batches_left: batches_left
@@ -237,21 +227,13 @@ module Searchkick
   end
 
   # private
-  def self.signer_middleware_key
-    defined?(FaradayMiddleware::AwsSignersV4) ? :aws_signers_v4 : :aws_sigv4
-  end
-
-  # private
-  def self.signer_middleware_aws_params
-    if signer_middleware_key == :aws_sigv4
-      {service: "es", region: "us-east-1"}.merge(aws_credentials)
-    else
-      {
-        credentials: aws_credentials[:credentials] || Aws::Credentials.new(aws_credentials[:access_key_id], aws_credentials[:secret_access_key]),
-        service_name: "es",
-        region: aws_credentials[:region] || "us-east-1"
-      }
-    end
+  def self.build_client(url:, timeout: nil, aws_credentials: nil, **options)
+    Searchkick::Client.new(
+      url: url,
+      timeout: timeout || self.timeout,
+      aws_credentials: aws_credentials || self.aws_credentials,
+      **client_options.deep_merge(options)
+    )
   end
 
   # private
