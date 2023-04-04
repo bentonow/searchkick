@@ -80,6 +80,7 @@ module Searchkick
         end
 
         def reindex(method_name = nil, **options)
+          byebug
           RecordIndexer.new(self).reindex(method_name, **options)
         end unless method_defined?(:reindex)
 
