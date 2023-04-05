@@ -2,9 +2,13 @@ module Searchkick
   class RecordIndexer
     attr_reader :record, :index
 
-    def initialize(record)
+    def initialize(record, tenant_index=nil)
       @record = record
-      @index = record.class.searchkick_index
+      if tenant_index
+        @index = index
+      else
+        @index = record.class.searchkick_index
+      end
     end
 
     def reindex(method_name = nil, refresh: false, mode: nil)
