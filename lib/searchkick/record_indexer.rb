@@ -2,7 +2,7 @@ module Searchkick
   class RecordIndexer
     attr_reader :record, :index
 
-    def initialize(record, index)
+    def initialize(record, index=nil)
       @record = record
       @index = index || record.class.searchkick_index
     end
