@@ -48,7 +48,6 @@ module Searchkick
     end
 
     def searchkick_index
-      byebug
       if klass.respond_to? 'tenant_searchkick_name'
         site_id = options[:where][:site_id]
         index_name = [site_id, klass.searchkick_index.name].join('_')
@@ -74,7 +73,7 @@ module Searchkick
           (@index_mapping[model.searchkick_index.name] ||= []) << model
         end
       end
-
+      byebug
       index =
         if options[:index_name]
           Array(options[:index_name]).map { |v| v.respond_to?(:searchkick_index) ? v.searchkick_index.name : v }.join(",")
