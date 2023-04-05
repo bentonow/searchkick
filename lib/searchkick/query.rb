@@ -32,7 +32,7 @@ module Searchkick
 
       @klass = klass
       @custom_index = options[:custom_index]
-      @client = (custom_index || searchkick_index || Searchkick).client
+      @client = (@custom_index || searchkick_index || Searchkick).client
       @term = term
       @options = options
       @match_suffix = options[:match] || searchkick_options[:match] || "analyzed"
