@@ -73,7 +73,7 @@ module Searchkick
           (@index_mapping[model.searchkick_index.name] ||= []) << model
         end
       end
-      byebug
+
       index =
         if options[:index_name]
           Array(options[:index_name]).map { |v| v.respond_to?(:searchkick_index) ? v.searchkick_index.name : v }.join(",")
