@@ -48,6 +48,7 @@ module Searchkick
     end
 
     def searchkick_index
+      byebug
       if klass.respond_to? 'tenant_searchkick_name'
         site_id = options[:where][:site_id]
         index_name = [site_id, klass.searchkick_index.name].join('_')
