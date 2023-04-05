@@ -4,8 +4,8 @@ module Searchkick
 
     def initialize(record)
       @record = record
-      if record.respond_to? 'tenant_searchkick_name'
-        index_name = [record.site_id, record.class.searchkick_index.name].join('_')
+      if @record.respond_to? 'tenant_searchkick_name'
+        index_name = [@record.site_id, @record.class.searchkick_index.name].join('_')
         @index = Searchkick::Index.new(index_name, **record.class.searchkick_options)
       else
         @index = record.class.searchkick_index

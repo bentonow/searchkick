@@ -48,7 +48,13 @@ module Searchkick
     end
 
     def searchkick_index
-      klass ? klass.searchkick_index : nil
+      if klass.respond_to? 'tenant_searchkick_name'
+        site_id = options[:where][:site_id]
+        index_name = [site_id, klass.searchkick_index.name].join('_')
+        @index = Searchkick::Index.new(index_name, **klass.searchkick_options)
+      else
+          klass ? klass.searchkick_index : nil
+      end
     end
 
     def searchkick_options
@@ -895,7 +901,7 @@ module Searchkick
           filters << {bool: {must: value.map { |or_statement| {bool: {filter: where_filters(or_statement)}} }}}
         elsif field == :_raw
           value.each { |raw_filter| filters << raw_filter }
-          
+
         # elsif field == :_script
         #   filters << {script: {script: {source: value, lang: "painless"}}}
         else
