@@ -80,9 +80,6 @@ module Searchkick
         end
 
         def reindex(method_name = nil, **options)
-
-          options['index_name'] = self.tenant_searchkick_name
-
           RecordIndexer.new(self).reindex(method_name, **options)
         end unless method_defined?(:reindex)
 
